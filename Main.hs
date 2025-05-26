@@ -1,40 +1,66 @@
--- main.hs
--- Use Case Diagram Generator in Haskell
+-- UseCaseDiagramInteractive.hs
+-- Interactive Use Case Diagram Generator in Haskell
 -- This program defines data structures for use case diagrams and functions
 -- to add elements, validate relationships, and generate PlantUML code.
 
-import Data.List (isInfixOf, nub, intercalate)
-import System.IO (writeFile, IOMode(WriteMode), hClose, openFile)
-import Data.Char (isAlphaNum, toLower)
+import Data.List (isInfixOf, nub, find) 
+import System.IO (writeFile, IOMode(WriteMode), hClose, openFile, hPutStrLn, stdout, hFlush) 
+import Data.Char (isAlphaNum, toLower, isDigit)
+import Text.Read (readMaybe) -- For safer number parsing
+
+-- ==================================================
+-- ANSI Style Definitions for Console Output
+-- ==================================================
+ansiReset, ansiBold, ansiFgRed, ansiFgGreen, ansiFgYellow, ansiFgBlue, ansiFgMagenta, ansiFgCyan :: String
+ansiReset   = "\033[0m"
+ansiBold    = "\033[1m"
+ansiFgRed   = "\033[31m"
+ansiFgGreen = "\033[32m"
+ansiFgYellow= "\033[33m"
+ansiFgBlue  = "\033[34m"
+ansiFgMagenta= "\033[35m"
+ansiFgCyan  = "\033[36m"
+
+-- Helper to style text
+style :: String -> String -> String
+style code text = code ++ text ++ ansiReset
+
+bold :: String -> String
+bold = style ansiBold
+
+red, green, yellow, blue, magenta, cyan :: String -> String
+red     = style ansiFgRed
+green   = style ansiFgGreen
+yellow  = style ansiFgYellow
+blue    = style ansiFgBlue
+magenta = style ansiFgMagenta
+cyan    = style ansiFgCyan
 
 -- ==================================================
 -- Data Type Definitions
 -- ==================================================
 
--- Type alias for names of actors, use cases, etc.
 type ElementName = String
-
--- Data type for Actors
 data Actor = Actor ElementName deriving (Show, Eq, Ord)
-
--- Data type for Use Cases
 data UseCase = UseCase ElementName deriving (Show, Eq, Ord)
-
--- Type alias for the System (Package) Name
 type SystemName = ElementName
 
--- Data type for Relationships
--- Note: Requirement [cite: 4] mentions "relations between use cases".
--- For a complete diagram, other relations are also included here.
 data Relationship
     = Association ElementName ElementName -- ActorName, UseCaseName
     | Include ElementName ElementName     -- BaseUCName, IncludedUCName
     | Extend ElementName ElementName      -- ExtendingUCName, ExtendedUCName
     | GeneralizationUseCase ElementName ElementName -- ChildUCName, ParentUCName
     | GeneralizationActor ElementName ElementName   -- ChildActorName, ParentActorName
-    deriving (Show, Eq)
+    deriving (Eq)
 
--- Main data structure for the Use Case Diagram
+-- Custom Show instance for Relationship to make listings prettier
+instance Show Relationship where
+    show (Association a uc)         = "'" ++ a ++ "' -- '" ++ uc ++ "'"
+    show (Include base inc)         = "'" ++ base ++ "' ..> '" ++ inc ++ "' : <<include>>"
+    show (Extend ext base)          = "'" ++ ext ++ "' ..> '" ++ base ++ "' : <<extend>>"
+    show (GeneralizationUseCase c p)= "'" ++ c ++ "' --|> '" ++ p ++ "'"
+    show (GeneralizationActor c p)  = "'" ++ c ++ "' --|> '" ++ p ++ "'"
+
 data UseCaseDiagram = UseCaseDiagram {
     systemName    :: Maybe SystemName,
     actors        :: [Actor],
@@ -42,214 +68,341 @@ data UseCaseDiagram = UseCaseDiagram {
     relationships :: [Relationship]
 } deriving (Show, Eq)
 
--- Initial empty diagram
 initialDiagram :: UseCaseDiagram
 initialDiagram = UseCaseDiagram Nothing [] [] []
 
 -- ==================================================
--- Helper Functions for Element Checking
+-- Helper Functions for Element Checking (Pure)
 -- ==================================================
-
--- Checks if an actor with the given name exists in the diagram
 actorExists :: ElementName -> UseCaseDiagram -> Bool
 actorExists name diagram = Actor name `elem` actors diagram
 
--- Checks if a use case with the given name exists in the diagram
 useCaseExists :: ElementName -> UseCaseDiagram -> Bool
 useCaseExists name diagram = UseCase name `elem` useCases diagram
 
--- Checks if a relationship already exists in the diagram
 relationshipExists :: Relationship -> UseCaseDiagram -> Bool
 relationshipExists rel diagram = rel `elem` relationships diagram
 
 -- ==================================================
--- Functions for "Inserting" Specifications [cite: 4]
+-- Functions for "Inserting" Specifications (Pure)
 -- ==================================================
-
--- Adds an actor to the diagram, ensuring no duplicates.
--- Returns Maybe UseCaseDiagram: Just diagram if successful, Nothing if actor already exists.
 addActor :: ElementName -> UseCaseDiagram -> Maybe UseCaseDiagram
 addActor name diagram
-    | actorExists name diagram = Nothing -- Actor already exists
+    | null name || actorExists name diagram = Nothing
     | otherwise = Just diagram { actors = nub (Actor name : actors diagram) }
 
--- Adds a use case to the diagram, ensuring no duplicates.
--- Returns Maybe UseCaseDiagram: Just diagram if successful, Nothing if use case already exists.
 addUseCase :: ElementName -> UseCaseDiagram -> Maybe UseCaseDiagram
 addUseCase name diagram
-    | useCaseExists name diagram = Nothing -- Use case already exists
+    | null name || useCaseExists name diagram = Nothing
     | otherwise = Just diagram { useCases = nub (UseCase name : useCases diagram) }
 
--- Sets or updates the system (package) name for the diagram.
-setSystemName :: SystemName -> UseCaseDiagram -> UseCaseDiagram
-setSystemName name diagram = diagram { systemName = Just name }
+setSystemNamePure :: SystemName -> UseCaseDiagram -> UseCaseDiagram
+setSystemNamePure name diagram
+    | null name = diagram 
+    | otherwise = diagram { systemName = Just name }
 
--- Validates and adds a relationship to the diagram. [cite: 5]
--- Requirement [cite: 5] specifically asks to validate if *use cases* involved are defined.
--- A more robust validation would check all participating elements (actors and use cases).
--- This implementation adheres to the strict wording for UC validation,
--- but also checks actors for associations and actor generalizations.
-addRelationship :: Relationship -> UseCaseDiagram -> Maybe UseCaseDiagram
-addRelationship rel diagram
-    | relationshipExists rel diagram = Nothing -- Relationship already exists
-    | not (validateRelationship rel diagram) = Nothing -- Validation failed
+addRelationshipPure :: Relationship -> UseCaseDiagram -> Maybe UseCaseDiagram
+addRelationshipPure rel diagram
+    | relationshipExists rel diagram = Nothing
+    | not (validateRelationship rel diagram) = Nothing
     | otherwise = Just diagram { relationships = nub (rel : relationships diagram) }
 
--- Validation logic for relationships [cite: 5]
+-- Validates relationships. Crucially, for any relation involving use cases,
+-- it verifies if those use cases are already defined, as per requirement #2[cite: 5].
+-- For completeness and practical diagram validity, it also checks actors
+-- when they are part of the relation (e.g., Associations, Actor Generalizations).
 validateRelationship :: Relationship -> UseCaseDiagram -> Bool
 validateRelationship (Association actorName ucName) diagram =
-    actorExists actorName diagram && useCaseExists ucName diagram
+    useCaseExists ucName diagram && actorExists actorName diagram -- Checks the involved use case [cite: 5] (and actor for robustness)
 validateRelationship (Include baseUCName includedUCName) diagram =
-    useCaseExists baseUCName diagram && useCaseExists includedUCName diagram && baseUCName /= includedUCName
+    useCaseExists baseUCName diagram && useCaseExists includedUCName diagram && baseUCName /= includedUCName -- Checks both involved use cases [cite: 5]
 validateRelationship (Extend extendingUCName extendedUCName) diagram =
-    useCaseExists extendingUCName diagram && useCaseExists extendedUCName diagram && extendingUCName /= extendedUCName
+    useCaseExists extendingUCName diagram && useCaseExists extendedUCName diagram && extendingUCName /= extendedUCName -- Checks both involved use cases [cite: 5]
 validateRelationship (GeneralizationUseCase childUCName parentUCName) diagram =
-    useCaseExists childUCName diagram && useCaseExists parentUCName diagram && childUCName /= parentUCName
+    useCaseExists childUCName diagram && useCaseExists parentUCName diagram && childUCName /= parentUCName -- Checks both involved use cases [cite: 5]
 validateRelationship (GeneralizationActor childActorName parentActorName) diagram =
+    -- This relation only involves actors; the "use cases involved" requirement doesn't apply directly.
+    -- It correctly validates actor existence for diagrammatic correctness.
     actorExists childActorName diagram && actorExists parentActorName diagram && childActorName /= parentActorName
 
 -- ==================================================
--- PlantUML Code Generation [cite: 6]
+-- PlantUML Code Generation (Pure)
 -- ==================================================
-
--- Generates a PlantUML safe name (lowercase, no spaces/hyphens, prefixed if starts with digit)
 sanitizeName :: ElementName -> String
 sanitizeName name =
     let lowerName = map toLower name
-        noSpaces = map (\c -> if c == ' ' || c == '-' then '_' else c) lowerName
-        alphaNumOnly = filter isAlphaNum noSpaces -- Keep only alphanumeric after initial replacement
-        validId = if null alphaNumOnly then "unspecified_id" else alphaNumOnly
-    in if not (null validId) && head validId >= '0' && head validId <= '9'
+        noSpacesOrHyphens = map (\c -> if c == ' ' || c == '-' then '_' else c) lowerName
+        alphaNumUnderscoreOnly = filter (\c -> isAlphaNum c || c == '_') noSpacesOrHyphens
+        validId = if null alphaNumUnderscoreOnly then "unspecified_id" else alphaNumUnderscoreOnly
+    in if not (null validId) && isDigit (head validId)
            then "id_" ++ validId
            else validId
 
--- Converts an Actor to its PlantUML string representation
 actorToPlantUML :: Actor -> String
-actorToPlantUML (Actor name) =
-    "actor \"" ++ name ++ "\" as " ++ sanitizeName name
+actorToPlantUML (Actor name) = "actor \"" ++ name ++ "\" as " ++ sanitizeName name
 
--- Converts a UseCase to its PlantUML string representation
 useCaseToPlantUML :: UseCase -> String
-useCaseToPlantUML (UseCase name) =
-    "usecase \"" ++ name ++ "\" as " ++ sanitizeName name
+useCaseToPlantUML (UseCase name) = "usecase \"" ++ name ++ "\" as " ++ sanitizeName name
 
--- Converts a Relationship to its PlantUML string representation
 relationshipToPlantUML :: Relationship -> String
 relationshipToPlantUML rel = case rel of
-    Association actorName ucName ->
-        sanitizeName actorName ++ " -- " ++ sanitizeName ucName
-    Include baseUC includedUC ->
-        sanitizeName baseUC ++ " ..> " ++ sanitizeName includedUC ++ " : <<include>>"
-    Extend extendingUC extendedUC ->
-        sanitizeName extendingUC ++ " ..> " ++ sanitizeName extendedUC ++ " : <<extend>>"
-    GeneralizationUseCase childUC parentUC ->
-        sanitizeName childUC ++ " --|> " ++ sanitizeName parentUC
-    GeneralizationActor childActor parentActor ->
-        sanitizeName childActor ++ " --|> " ++ sanitizeName parentActor
+    Association actorName ucName -> sanitizeName actorName ++ " -- " ++ sanitizeName ucName
+    Include baseUC includedUC -> sanitizeName baseUC ++ " ..> " ++ sanitizeName includedUC ++ " : <<include>>"
+    Extend extendingUC extendedUC -> sanitizeName extendingUC ++ " ..> " ++ sanitizeName extendedUC ++ " : <<extend>>"
+    GeneralizationUseCase childUC parentUC -> sanitizeName childUC ++ " --|> " ++ sanitizeName parentUC
+    GeneralizationActor childActor parentActor -> sanitizeName childActor ++ " --|> " ++ sanitizeName parentActor
 
--- Converts the entire UseCaseDiagram to a PlantUML string
+-- Converts the entire UseCaseDiagram to a PlantUML string [cite: 6]
 diagramToPlantUML :: UseCaseDiagram -> String
 diagramToPlantUML diagram =
     unlines $
     ["@startuml"] ++
-    title ++
+    titleLine ++
     ["left to right direction", "skinparam packageStyle rectangle", "skinparam actorStyle awesome", ""] ++
-    map actorToPlantUML (actors diagram) ++
-    [""] ++
+    map actorToPlantUML (actors diagram) ++ [""] ++
     packageStart ++
     map useCaseToPlantUML (useCases diagram) ++
-    packageEnd ++
-    [""] ++
+    packageEnd ++ [""] ++
     map relationshipToPlantUML (relationships diagram) ++
     ["@enduml"]
   where
-    title = case systemName diagram of
-              Just sn -> ["title Use Case Diagram for " ++ sn, ""]
-              Nothing -> ["title Use Case Diagram", ""]
+    titleLine = case systemName diagram of
+              Just sn | not (null sn) -> ["title Use Case Diagram for " ++ sn, ""]
+              _                     -> ["title Use Case Diagram", ""]
     packageStart = case systemName diagram of
-                     Just sn -> ["rectangle \"<<System>>\\n" ++ sn ++ "\" as " ++ sanitizeName sn ++ "_boundary {", ""]
-                     Nothing -> []
+                     Just sn | not (null sn) -> ["rectangle \"<<System>>\\n" ++ sn ++ "\" as " ++ sanitizeName sn ++ "_boundary {", ""]
+                     _                     -> []
     packageEnd = case systemName diagram of
-                   Just _  -> ["", "}"]
-                   Nothing -> []
-
+                   Just sn | not (null sn) -> ["", "}"]
+                   _                     -> []
 
 -- ==================================================
--- Main function to demonstrate usage
+-- IO Helper Functions
 -- ==================================================
 
--- Safely adds an element or relationship, printing errors if any
--- This is a helper for the demonstration in `main`
-addComponent :: (ElementName -> UseCaseDiagram -> Maybe UseCaseDiagram)
-             -> ElementName
-             -> UseCaseDiagram
-             -> IO UseCaseDiagram
-addComponent addFunc name diagram =
-    case addFunc name diagram of
-        Just newDiagram -> return newDiagram
-        Nothing         -> do
-            putStrLn $ "Error: Could not add '" ++ name ++ "'. It might already exist or be invalid."
-            return diagram
+prompt :: String -> IO String
+prompt message = do
+    putStr $ yellow (message ++ " ")
+    hFlush stdout
+    getLine
 
-addRel :: Relationship
-       -> UseCaseDiagram
-       -> IO UseCaseDiagram
-addRel rel diagram =
-    case addRelationship rel diagram of
-        Just newDiagram -> return newDiagram
-        Nothing         -> do
-            putStrLn $ "Error: Could not add relationship '" ++ show rel ++ "'. It might already exist or involve undefined/invalid elements."
-            return diagram
+getChoice :: IO Int
+getChoice = do
+    choiceStr <- prompt "Choose an option:"
+    case readMaybe choiceStr of
+        Just val -> return val
+        Nothing  -> do
+            putStrLn $ red "Invalid input. Please enter a number."
+            getChoice
 
--- Example usage
+printIndexedList :: Show a => [a] -> IO ()
+printIndexedList items =
+    if null items
+    then putStrLn $ yellow "No items to display."
+    else mapM_ putStrLn $ zipWith (\i item -> show i ++ ". " ++ show item) [1..] items
+
+selectItem :: Show a => String -> [a] -> (a -> ElementName) -> IO (Maybe ElementName)
+selectItem itemType items getNameFunc = do
+    if null items
+    then do
+        putStrLn $ yellow ("No " ++ itemType ++ "s available to select.")
+        return Nothing
+    else do
+        putStrLn $ magenta ("--- Available " ++ itemType ++ "s ---")
+        printIndexedList items
+        indexStr <- prompt ("Enter number of " ++ itemType ++ " to select (or 0 to cancel):")
+        case readMaybe indexStr of
+            Just idx
+                | idx == 0 -> putStrLn (yellow "Cancelled.") >> return Nothing
+                | idx > 0 && idx <= length items -> return $ Just (getNameFunc (items !! (idx - 1)))
+            _ -> putStrLn (red "Invalid selection.") >> selectItem itemType items getNameFunc
+
+getActorName :: Actor -> ElementName
+getActorName (Actor name) = name
+
+getUseCaseName :: UseCase -> ElementName
+getUseCaseName (UseCase name) = name
+
+-- ==================================================
+-- IO Actions for Modifying Diagram
+-- (These functions provide the interactive way to "insert the specification" [cite: 4])
+-- ==================================================
+actionAddActor :: UseCaseDiagram -> IO UseCaseDiagram
+actionAddActor diagram = do
+    name <- prompt "Enter actor name:"
+    if null name then do
+        putStrLn $ red "Actor name cannot be empty."
+        return diagram
+    else
+        case addActor name diagram of
+            Just newDiagram -> putStrLn (green $ "Actor '" ++ name ++ "' added.") >> return newDiagram
+            Nothing         -> putStrLn (red $ "Actor '" ++ name ++ "' already exists or is invalid.") >> return diagram
+
+actionAddUseCase :: UseCaseDiagram -> IO UseCaseDiagram
+actionAddUseCase diagram = do
+    name <- prompt "Enter use case name:"
+    if null name then do
+        putStrLn $ red "Use case name cannot be empty."
+        return diagram
+    else
+        case addUseCase name diagram of
+            Just newDiagram -> putStrLn (green $ "Use Case '" ++ name ++ "' added.") >> return newDiagram
+            Nothing         -> putStrLn (red $ "Use Case '" ++ name ++ "' already exists or is invalid.") >> return diagram
+
+actionSetSystemName :: UseCaseDiagram -> IO UseCaseDiagram
+actionSetSystemName diagram = do
+    name <- prompt "Enter system name for the diagram (this will act as the main package):"
+    if null name then do
+        putStrLn $ red "System name cannot be empty."
+        return diagram
+    else do
+        let newDiagram = setSystemNamePure name diagram
+        putStrLn (green $ "System name set to '" ++ name ++ "'.")
+        return newDiagram
+
+actionAddRelationship :: (ElementName -> ElementName -> Relationship) -> String -> String -> String -> UseCaseDiagram -> IO UseCaseDiagram
+actionAddRelationship relConstructor relType el1Type el2Type diagram = do
+    putStrLn $ cyan $ "Select " ++ el1Type ++ " for " ++ relType ++ ":"
+    maybeEl1Name <- if el1Type == "Actor"
+                    then selectItem "Actor" (actors diagram) getActorName
+                    else selectItem "Use Case" (useCases diagram) getUseCaseName
+    case maybeEl1Name of
+        Nothing -> return diagram
+        Just el1Name -> do
+            putStrLn $ cyan $ "Select " ++ el2Type ++ " for " ++ relType ++ " (related to '" ++ el1Name ++ "'):"
+            maybeEl2Name <- if el2Type == "Actor"
+                            then selectItem "Actor" (actors diagram) getActorName
+                            else selectItem "Use Case" (useCases diagram) getUseCaseName
+            case maybeEl2Name of
+                Nothing -> return diagram
+                Just el2Name -> do
+                    let rel = relConstructor el1Name el2Name
+                    case addRelationshipPure rel diagram of -- This calls validateRelationship internally
+                        Just newDiagram -> putStrLn (green $ relType ++ " added: " ++ show rel) >> return newDiagram
+                        Nothing         -> putStrLn (red $ "Could not add " ++ relType ++ ". Invalid, duplicate, or self-referential.") >> return diagram
+
+actionAddAssociationIO :: UseCaseDiagram -> IO UseCaseDiagram
+actionAddAssociationIO = actionAddRelationship Association "Association" "Actor" "Use Case"
+
+actionAddIncludeIO :: UseCaseDiagram -> IO UseCaseDiagram
+actionAddIncludeIO = actionAddRelationship Include "<<include>> Relation" "Use Case" "Use Case"
+
+actionAddExtendIO :: UseCaseDiagram -> IO UseCaseDiagram
+actionAddExtendIO = actionAddRelationship Extend "<<extend>> Relation" "Use Case" "Use Case"
+
+actionAddGenUCIO :: UseCaseDiagram -> IO UseCaseDiagram
+actionAddGenUCIO = actionAddRelationship GeneralizationUseCase "Use Case Generalization" "Use Case" "Use Case"
+
+actionAddGenActorIO :: UseCaseDiagram -> IO UseCaseDiagram
+actionAddGenActorIO = actionAddRelationship GeneralizationActor "Actor Generalization" "Actor" "Actor"
+
+actionGeneratePlantUML :: UseCaseDiagram -> IO ()
+actionGeneratePlantUML diagram = do
+    defaultFilename <- case systemName diagram of
+                        Just sn | not (null sn) -> return $ sanitizeName sn ++ ".puml"
+                        _                       -> return "use_case_diagram.puml"
+    putStrLn $ "Default filename will be '" ++ defaultFilename ++ "'."
+    filenameStr <- prompt "Enter filename (or press Enter for default, 0 to cancel):"
+    case filenameStr of
+        "0" -> putStrLn $ yellow "Generation cancelled."
+        ""  -> writePuml defaultFilename
+        customFn -> writePuml (if ".puml" `isInfixOf` customFn then customFn else customFn ++ ".puml")
+  where
+    writePuml fn = do
+        let plantUMLCode = diagramToPlantUML diagram
+        handle <- openFile fn WriteMode
+        System.IO.hPutStrLn handle plantUMLCode 
+        hClose handle
+        putStrLn $ green ("Diagram saved to file '" ++ fn ++ "'")
+
+-- ==================================================
+-- Menu Loops
+-- ==================================================
+manageElementsLoop :: UseCaseDiagram -> IO UseCaseDiagram
+manageElementsLoop diagram = do
+    putStrLn ""
+    putStrLn $ bold $ blue "--- Manage Elements ---"
+    putStrLn "1. Add Actor"
+    putStrLn "2. Add Use Case"
+    putStrLn "0. Back to Main Menu"
+    choice <- getChoice
+    case choice of
+        1 -> actionAddActor diagram >>= manageElementsLoop
+        2 -> actionAddUseCase diagram >>= manageElementsLoop
+        0 -> return diagram
+        _ -> putStrLn (red "Invalid option.") >> manageElementsLoop diagram
+
+manageGeneralizationsLoop :: UseCaseDiagram -> IO UseCaseDiagram
+manageGeneralizationsLoop diagram = do
+    putStrLn ""
+    putStrLn $ bold $ blue "--- Add Generalization ---"
+    putStrLn "1. Actor Generalization"
+    putStrLn "2. Use Case Generalization"
+    putStrLn "0. Back to Manage Relationships Menu"
+    choice <- getChoice
+    case choice of
+        1 -> actionAddGenActorIO diagram
+        2 -> actionAddGenUCIO diagram
+        0 -> return diagram
+        _ -> putStrLn (red "Invalid option.") >> manageGeneralizationsLoop diagram
+
+manageRelationshipsLoop :: UseCaseDiagram -> IO UseCaseDiagram
+manageRelationshipsLoop diagram = do
+    putStrLn ""
+    putStrLn $ bold $ blue "--- Manage Relationships ---"
+    putStrLn "1. Add Association (Actor -- Use Case)"
+    putStrLn "2. Add <<include>> Relation (Use Case ..> Use Case)"
+    putStrLn "3. Add <<extend>> Relation (Use Case ..> Use Case)"
+    putStrLn "4. Add Generalization"
+    putStrLn "0. Back to Main Menu"
+    choice <- getChoice
+    case choice of
+        1 -> actionAddAssociationIO diagram >>= manageRelationshipsLoop
+        2 -> actionAddIncludeIO diagram >>= manageRelationshipsLoop
+        3 -> actionAddExtendIO diagram >>= manageRelationshipsLoop
+        4 -> manageGeneralizationsLoop diagram >>= manageRelationshipsLoop
+        0 -> return diagram
+        _ -> putStrLn (red "Invalid option.") >> manageRelationshipsLoop diagram
+
+mainMenuLoop :: UseCaseDiagram -> IO ()
+mainMenuLoop diagram = do
+    putStrLn ""
+    case systemName diagram of
+        Just sn | not (null sn) -> putStrLn $ bold $ green ("Current System/Package: " ++ sn)
+        _                       -> putStrLn $ yellow "No system/package defined yet. Consider setting one (Option 3)."
+    putStrLn $ bold $ cyan "=== Main Menu ==="
+    putStrLn "1. Manage Elements (Actors, Use Cases)"
+    putStrLn "2. Manage Relationships"
+    putStrLn "3. Set/Change System Name (Package)"
+    putStrLn "4. Generate .puml Diagram File"
+    putStrLn "0. Exit to Initial Menu"
+    choice <- getChoice
+    case choice of
+        1 -> manageElementsLoop diagram >>= mainMenuLoop
+        2 -> manageRelationshipsLoop diagram >>= mainMenuLoop
+        3 -> actionSetSystemName diagram >>= mainMenuLoop
+        4 -> actionGeneratePlantUML diagram >> mainMenuLoop diagram
+        0 -> putStrLn (yellow "Returning to Initial Menu...")
+        _ -> putStrLn (red "Invalid option.") >> mainMenuLoop diagram
+
+initialMenuLoop :: IO ()
+initialMenuLoop = do
+    putStrLn ""
+    putStrLn $ bold $ cyan "=== Initial Menu ==="
+    putStrLn "1. Create a new diagram"
+    putStrLn "0. Exit Program"
+    choice <- getChoice
+    case choice of
+        1 -> do
+            putStrLn $ green "New diagram process started."
+            actionSetSystemName initialDiagram >>= mainMenuLoop
+        0 -> putStrLn $ bold $ magenta "Goodbye!"
+        _ -> putStrLn (red "Invalid option.") >> initialMenuLoop
+
+-- ==================================================
+-- Program Entry Point
+-- ==================================================
 main :: IO ()
 main = do
-    putStrLn "--- Building Use Case Diagram ---"
-
-    let diagram0 = initialDiagram
-    let diagram1 = setSystemName "Library Management System" diagram0
-
-    -- Add Actors
-    diagram2 <- addComponent addActor "Librarian" diagram1
-    diagram3 <- addComponent addActor "Member" diagram2
-
-    -- Add Use Cases
-    diagram4 <- addComponent addUseCase "Borrow Book" diagram3
-    diagram5 <- addComponent addUseCase "Return Book" diagram4
-    diagram6 <- addComponent addUseCase "Search Catalog" diagram5
-    diagram7 <- addComponent addUseCase "Manage Users" diagram6
-
-    -- Add Relationships
-    diagram8 <- addRel (Association "Member" "Borrow Book") diagram7
-    diagram9 <- addRel (Association "Member" "Return Book") diagram8
-    diagram10 <- addRel (Association "Member" "Search Catalog") diagram9
-    diagram11 <- addRel (Association "Librarian" "Manage Users") diagram10
-    diagram12 <- addRel (Include "Borrow Book" "Search Catalog") diagram11 -- Member must search catalog to borrow
-    diagram13 <- addRel (Extend "Borrow Book" "Request InterLibrary Loan") diagram12 -- Add an extend, UC "Request ILL" not added yet for demo of validation
-    
-    -- Let's add the missing UC for the extend to be valid (or it would fail)
-    diagram13_fixed <- addComponent addUseCase "Request InterLibrary Loan" diagram12
-    diagram14 <- addRel (Extend "Borrow Book" "Request InterLibrary Loan") diagram13_fixed
-    diagram15 <- addRel (GeneralizationActor "Student Member" "Member") diagram14 -- Actor "Student Member" not added yet
-
-    -- Add missing actor for generalization
-    diagram15_fixed <- addComponent addActor "Student Member" diagram14
-    diagram16 <- addRel (GeneralizationActor "Student Member" "Member") diagram15_fixed
-
-
-    let finalDiagram = diagram16 -- Or diagram12 if you want to see validation failure for Extend/Generalization
-
-    putStrLn "\n--- Final Diagram Specification (Haskell Data) ---"
-    print finalDiagram
-
-    let plantUMLCode = diagramToPlantUML finalDiagram
-    putStrLn "\n--- Generated PlantUML Code ---"
-    putStrLn plantUMLCode
-
-    -- Write to file
-    let outputFilename = "use_case_diagram.puml"
-    handle <- openFile outputFilename WriteMode
-    hPutStrLn handle plantUMLCode
-    hClose handle
-    putStrLn $ "\nPlantUML code saved to " ++ outputFilename
-    putStrLn "--- Program End ---"
+    putStrLn $ bold $ green "Welcome to the Haskell Use Case Diagram Builder!"
+    initialMenuLoop
