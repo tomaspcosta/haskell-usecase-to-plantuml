@@ -17,32 +17,32 @@ The main goal of this project is to simplify the process of creating UML Use Cas
 
 ## Technologies Used
 
-- **Haskell (GHC)**: For functional programming, data type definitions, and program logic. [cite: 1]
-- **PlantUML**: For rendering UML diagrams from the generated `.puml` files. [cite: 1]
+- **Haskell (GHC)**: For functional programming, data type definitions, and program logic.
+- **PlantUML**: For rendering UML diagrams from the generated `.puml` files.
 
 ## How it Works
 
 The program follows these steps:
-1.  **Define Data Structures**: Haskell data types are used to represent actors, use cases, packages (a system name), and relationships. [cite: 1]
+1.  **Define Data Structures**: Haskell data types are used to represent actors, use cases, packages (a system name), and relationships.
 2.  **Interactive Menu**: Users interact with the program through a console-based menu system to build the diagram specification.
-3.  **Insert Elements & Relationships**: Users can add actors, use cases, set a system name, and define relationships (e.g., associations, generalizations, includes, and extends). [cite: 4]
-4.  **Validate Input**: The program validates each relation specification, verifying if the use cases involved are already defined. [cite: 5] It also prevents duplicate elements and relationships.
-5.  **Generate PlantUML Code**: Users can generate `.puml` files containing the PlantUML syntax for the defined diagram. [cite: 2, 6]
+3.  **Insert Elements & Relationships**: Users can add actors, use cases, set a system name, and define relationships (e.g., associations, generalizations, includes, and extends).
+4.  **Validate Input**: The program validates each relation specification, verifying if the use cases involved are already defined. It also prevents duplicate elements and relationships.
+5.  **Generate PlantUML Code**: Users can generate `.puml` files containing the PlantUML syntax for the defined diagram.
 
 ## Features
 
 -   **Interactive Menu**: A user-friendly console menu system for defining the diagram specification.
--   **Data Definition**: Functions to specify actors, use cases, a system (package) name, and various relationships. [cite: 4]
+-   **Data Definition**: Functions to specify actors, use cases, a system (package) name, and various relationships.
 -   **Relationship Handling**: Supports associations, includes, extends, and generalizations for both actors and use cases.
--   **Validation**: Ensures that use cases involved in relationships are already defined before a relationship is added. [cite: 5] Prevents duplicate entries for elements and relationships.
--   **Diagram Export**: Generates `.puml` files for visualization with PlantUML. [cite: 6]
+-   **Validation**: Ensures that use cases involved in relationships are already defined before a relationship is added. Prevents duplicate entries for elements and relationships.
+-   **Diagram Export**: Generates `.puml` files for visualization with PlantUML.
 
 ## How to Run
 
 1.  **Install Haskell (GHC)**: Ensure that you have the Glasgow Haskell Compiler (GHC) and the Cabal or Stack build tools installed. If not, you can download them from [haskell.org/ghcup/](https://www.haskell.org/ghcup/).
 
 2.  **Obtain the Code**:
-    * Save the Haskell code into a file, for example, `Main.hs`. [cite: 3]
+    * Save the Haskell code into a file, for example, `Main.hs`.
 
 3.  **Compile the Program**:
     * Open your terminal or command prompt.
@@ -68,7 +68,7 @@ The program follows these steps:
         * Generate a `.puml` file.
 
 6.  **Generate the PlantUML Diagram**:
-    * After defining the diagram through the interactive menus, choose the option to generate a `.puml` file. [cite: 6]
+    * After defining the diagram through the interactive menus, choose the option to generate a `.puml` file.
     * The program will prompt for a filename or use a default.
     * Open the generated `.puml` file in a PlantUML-compatible tool (e.g., PlantUML web server, VS Code extension, standalone JAR) to visualize the diagram.
 
