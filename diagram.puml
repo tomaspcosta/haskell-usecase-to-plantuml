@@ -1,0 +1,38 @@
+@startuml
+title Use Case Diagram for Airport
+
+left to right direction
+skinparam packageStyle rectangle
+skinparam actorStyle awesome
+
+actor "Passenger with Special Needs" as passenger_with_special_needs
+actor "Passenger" as passenger
+actor "Tour Guidef" as tour_guidef
+actor "Minor Passenger" as minor_passenger
+
+rectangle "<<System>>\nAirport" as airport_boundary {
+
+usecase "Baggage Handling" as baggage_handling
+usecase "Kiosk Check-In" as kiosk_check_in
+usecase "Counter Check-In" as counter_check_in
+usecase "Security Screening" as security_screening
+usecase "Baggage Check-In" as baggage_check_in
+usecase "Individual Check-In" as individual_check_in
+usecase "Group Check-In" as group_check_in
+
+}
+
+baggage_handling ..> kiosk_check_in : <<extend>>
+baggage_handling ..> counter_check_in : <<extend>>
+passenger -- security_screening
+passenger -- individual_check_in
+tour_guidef -- group_check_in
+baggage_check_in ..> individual_check_in : <<extend>>
+group_check_in ..> individual_check_in : <<include>>
+kiosk_check_in --|> individual_check_in
+counter_check_in --|> individual_check_in
+passenger_with_special_needs --|> passenger
+minor_passenger --|> passenger
+tour_guidef --|> passenger
+@enduml
+
