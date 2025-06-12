@@ -1,12 +1,7 @@
--- UseCaseDiagramInteractive.hs
--- Interactive Use Case Diagram Generator in Haskell
--- This program defines data structures for use case diagrams and functions
--- to add elements, validate relationships, and generate PlantUML code.
-
 import Data.List (isInfixOf, nub, find)
 import System.IO (writeFile, IOMode(WriteMode), hClose, openFile, hPutStrLn, stdout, hFlush)
 import Data.Char (isAlphaNum, toLower, isDigit)
-import Text.Read (readMaybe) -- For safer number parsing
+import Text.Read (readMaybe)
 
 -- ==================================================
 -- Data Type Definitions
@@ -44,7 +39,7 @@ initialDiagram :: UseCaseDiagram
 initialDiagram = UseCaseDiagram Nothing [] [] []
 
 -- ==================================================
--- Helper Functions for Element Checking (Pure)
+-- Helper Functions for Element Checking
 -- ==================================================
 actorExists :: ElementName -> UseCaseDiagram -> Bool
 actorExists name diagram = Actor name `elem` actors diagram
@@ -56,7 +51,7 @@ relationshipExists :: Relationship -> UseCaseDiagram -> Bool
 relationshipExists rel diagram = rel `elem` relationships diagram
 
 -- ==================================================
--- Functions for "Inserting" Specifications (Pure)
+-- Functions for "Inserting" Specifications
 -- ==================================================
 addActor :: ElementName -> UseCaseDiagram -> Maybe UseCaseDiagram
 addActor name diagram
@@ -96,7 +91,7 @@ validateRelationship (GeneralizationActor childActorName parentActorName) diagra
     actorExists childActorName diagram && actorExists parentActorName diagram && childActorName /= parentActorName
 
 -- ==================================================
--- PlantUML Code Generation (Pure)
+-- PlantUML Code Generation
 -- ==================================================
 sanitizeName :: ElementName -> String
 sanitizeName name =
@@ -127,7 +122,7 @@ diagramToPlantUML diagram =
     unlines $
     ["@startuml"] ++
     titleLine ++
-    ["left to right direction", "skinparam packageStyle rectangle", "skinparam actorStyle awesome", ""] ++
+    ["left to right direction", "skinparam packageStyle rectangle", ""] ++
     map actorToPlantUML (actors diagram) ++ [""] ++
     packageStart ++
     map useCaseToPlantUML (useCases diagram) ++
